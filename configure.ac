@@ -26,7 +26,7 @@
 # SUCH DAMAGE.
 
 AC_PREREQ([2.63])
-AC_INIT([thttpd], [2.26.0], [thttpd])
+AC_INIT([thttpd], [2.26-L2K], [thttpd])
 
 AC_CONFIG_SRCDIR([thttpd.c])
 AC_CONFIG_MACRO_DIR([m4])

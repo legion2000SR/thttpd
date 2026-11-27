@@ -160,7 +160,7 @@
 #define PACKAGE_NAME "thttpd"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "thttpd 2.26.0"
+#define PACKAGE_STRING "thttpd 2.26-L2K"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "thttpd"
@@ -169,7 +169,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "2.26.0"
+#define PACKAGE_VERSION "2.26-L2K"
 
 /* Define to 1 if all of the C89 standard headers exist (not just the ones
    required in a freestanding environment). This macro is provided for
@@ -177,7 +177,7 @@
 #define STDC_HEADERS 1
 
 /* Version number of package */
-#define VERSION "2.26.0"
+#define VERSION "2.26-L2K"
 
 /* Number of bits in a file offset, on hosts where this is settable. */
 /* #undef _FILE_OFFSET_BITS */
