@@ -107,6 +107,7 @@ static void moved(char* script_name, char* url) {
     (void) printf(
             "\
 Location: %s\n\
+Refresh: 0; url=%s\n\
 Content-type: text/html\n\
 \n\
 <HTML><HEAD><TITLE>%s</TITLE></HEAD>\n\
@@ -114,7 +115,7 @@ Content-type: text/html\n\
 The requested filename, %s, has moved to a new URL:\n\
 <A HREF=\"%s\">%s</A>.\n\
 </BODY></HTML>\n",
-            url, title, title, script_name, url, url);
+            url, url, title, title, script_name, url, url);
 }
 
 int main(int argc, char** argv) {
@@ -169,14 +170,30 @@ int main(int argc, char** argv) {
         /* Check for blank line. */
         if (*cp != '\0') {
             /* Parse line. */
-            if (sscanf(cp, "%[^ \t\n] %[^ \t\n]", file, url) == 2) {
+            if (sscanf(cp, "%4999[^ \t\n] %4999[^ \t\n]", file, url) == 2) {
+                /* Never emit CR/LF in a CGI Location header. */
+                if (strpbrk(url, "\r\n") != NULL)
+                    continue;
+                /* Directory targets use their index page.  Reject an entry
+                 ** rather than truncate it if the result is too long.
+                 */
+                if (url[0] != '\0' && url[strlen(url) - 1] == '/') {
+                    static const char index_name[] = "index.html";
+                    if (strlen(url) + sizeof(index_name) > sizeof(url))
+                        continue;
+                    strcat(url, index_name);
+                }
                 /* Check for wildcard match. */
                 star = strchr(file, '*');
                 if (star != (char*) 0) {
                     /* Check for leading match. */
                     if (strncmp(file, script_name, star - file) == 0) {
                         /* Got it; put together the full name. */
-                        strcat(url, script_name + (star - file));
+                        const char* suffix = script_name + (star - file);
+                        if (strlen(suffix) >= sizeof(url) - strlen(url)
+                                || strpbrk(suffix, "\r\n") != NULL)
+                            continue;
+                        strcat(url, suffix);
                         /* XXX Whack the script_name, too? */
                         moved(script_name, url);
                         exit(0);

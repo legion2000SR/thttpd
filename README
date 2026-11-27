@@ -104,6 +104,10 @@ Relevant config.h options: CGI_PATTERN, CGI_TIMELIMIT, CGI_NICE, CGI_PATH, CGI_L
 BASIC AUTHENTICATION
 
 Basic Authentication is available as an option at compile time. If enabled, it uses a password file in the directory to be protected, called .htpasswd by default. This file is formatted as the familiar colon-separated username/encrypted-password pair, records delimited by newlines. The protection does not carry over to subdirectories. The utility program htpasswd(1) is included to help create and modify .htpasswd files. 
+    When a requested path contains a symbolic link, authorization is checked
+    against the resolved target path, not the location of the link.  Put the
+    .htpasswd file in the target directory (or use global password protection)
+    rather than relying on a password file beside the symlink.
 
 Relevant config.h option: AUTH_FILE, 
 

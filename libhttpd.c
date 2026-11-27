@@ -40,6 +40,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <time.h>
 #ifdef HAVE_MEMORY_H
@@ -274,7 +275,7 @@ httpd_initialize(char* hostname, httpd_sockaddr* sa4P, httpd_sockaddr* sa6P,
         }
         /* Nuke any leading slashes in the cgi pattern. */
         while ((cp = strstr(hs->cgi_pattern, "|/")) != (char*) 0)
-            (void) strcpy(cp + 1, cp + 2);
+            (void) memmove(cp + 1, cp + 2, strlen(cp + 2) + 1);
     }
     hs->cgi_limit = cgi_limit;
     hs->cgi_count = 0;
@@ -910,6 +911,10 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
     static char* prevauthpath;
     static size_t maxprevauthpath = 0;
     static time_t prevmtime;
+    static time_t prevctime;
+    static off_t prevsize;
+    static ino_t previno;
+    static dev_t prevdev;
     static char* prevuser;
     static size_t maxprevuser = 0;
     static char* prevcryp;
@@ -936,6 +941,15 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
     /* Decode it. */
     l = b64_decode(&(hc->authorization[6]), (unsigned char*) authinfo,
             sizeof(authinfo) - 1);
+    if (l <= 0 || l >= (int) sizeof(authinfo)) {
+        send_authenticate(hc, dirname);
+        return -1;
+    }
+    /* Reject decoded NULs rather than accepting truncated credentials. */
+    if (memchr(authinfo, '\0', (size_t) l) != NULL) {
+        send_authenticate(hc, dirname);
+        return -1;
+    }
     authinfo[l] = '\0';
     /* Split into user and password. */
     authpass = strchr(authinfo, ':');
@@ -952,11 +966,12 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
 
     /* See if we have a cached entry and can use it. */
     if (maxprevauthpath != 0 && strcmp(authpath, prevauthpath) == 0
-            && sb.st_mtime == prevmtime && strcmp(authinfo, prevuser) == 0) {
+            && sb.st_mtime == prevmtime && sb.st_ctime == prevctime
+            && sb.st_size == prevsize && sb.st_ino == previno
+            && sb.st_dev == prevdev && strcmp(authinfo, prevuser) == 0) {
         /* Yes.  Check against the cached encrypted password. */
-        if (strcmp(
-                (const char*) crypt((const char*) authpass,
-                        (const char*) prevcryp), (const char*) prevcryp) == 0) {
+        const char* computed = crypt(authpass, prevcryp);
+        if (computed != NULL && strcmp(computed, prevcryp) == 0) {
             /* Ok! */
             httpd_realloc_str(&hc->remoteuser, &hc->maxremoteuser,
                     strlen(authinfo));
@@ -987,7 +1002,7 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
     while (fgets(line, sizeof(line), fp) != (char*) 0) {
         /* Nuke newline. */
         l = strlen(line);
-        if (line[l - 1] == '\n')
+        if (l > 0 && line[l - 1] == '\n')
             line[l - 1] = '\0';
         /* Split into user and encrypted password. */
         cryp = strchr(line, ':');
@@ -999,7 +1014,8 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
             /* Yes. */
             (void) fclose(fp);
             /* So is the password right? */
-            if ((const char*)strcmp((const char*)crypt((const char*)authpass,(const char*)cryp),(const char*)cryp) == 0) {
+            const char* computed = crypt(authpass, cryp);
+            if (computed != NULL && strcmp(computed, cryp) == 0) {
                 /* Ok! */
                 httpd_realloc_str(&hc->remoteuser, &hc->maxremoteuser,
                         strlen(line));
@@ -1009,6 +1025,10 @@ static int auth_check2(httpd_conn* hc, char* dirname) {
                         strlen(authpath));
                 (void) strcpy(prevauthpath, authpath);
                 prevmtime = sb.st_mtime;
+                prevctime = sb.st_ctime;
+                prevsize = sb.st_size;
+                previno = sb.st_ino;
+                prevdev = sb.st_dev;
                 httpd_realloc_str(&prevuser, &maxprevuser, strlen(authinfo));
                 (void) strcpy(prevuser, authinfo);
                 httpd_realloc_str(&prevcryp, &maxprevcryp, strlen(cryp));
@@ -1082,7 +1102,9 @@ static int hexit(char c) {
  */
 static void strdecode(char* to, char* from) {
     for (; *from != '\0'; ++to, ++from) {
-        if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) {
+        if (from[0] == '%' && from[1] != '\0' && from[2] != '\0'
+                && isxdigit((unsigned char) from[1])
+                && isxdigit((unsigned char) from[2])) {
             *to = hexit(from[1]) * 16 + hexit(from[2]);
             from += 2;
         } else
@@ -1190,6 +1212,29 @@ tilde_map_2( httpd_conn* hc )
     return 1;
 }
 #endif /* TILDE_MAP_2 */
+
+/* Keep untrusted authority values out of filesystem path components. */
+static int valid_vhost_name(const char* name) {
+    const unsigned char* p = (const unsigned char*) name;
+    size_t len = strlen(name);
+#ifdef USE_IPV6
+    if (len >= 4 && name[0] == '[' && name[len - 1] == ']') {
+        struct in6_addr address;
+        char literal[INET6_ADDRSTRLEN];
+        if (len - 2 >= sizeof(literal))
+            return 0;
+        memcpy(literal, name + 1, len - 2);
+        literal[len - 2] = '\0';
+        return inet_pton(AF_INET6, literal, &address) == 1;
+    }
+#endif
+    if (len == 0 || len > 253 || name[0] == '.' || name[len - 1] == '.')
+        return 0;
+    for (; *p != '\0'; ++p)
+        if (!(isalnum(*p) || *p == '.' || *p == '-'))
+            return 0;
+    return strstr(name, "..") == (char*) 0;
+}
 
 /* Virtual host mapping. */
 static int vhost_map(httpd_conn* hc) {
@@ -1332,7 +1377,7 @@ expand_symlinks(char* path, char** restP, int no_symlink_check, int tildemapped)
     if (!tildemapped)
         /* Remove any leading slashes. */
         while (rest[0] == '/') {
-            (void) strcpy(rest, &(rest[1]));
+            (void) memmove(rest, rest + 1, strlen(rest + 1) + 1);
             --restlen;
         }
     r = rest;
@@ -1745,6 +1790,18 @@ int httpd_parse_request(httpd_conn* hc) {
     char* eol;
     char* cp;
     char* pi;
+    int saw_content_length = 0;
+    int saw_transfer_encoding = 0;
+    int saw_host = 0;
+    size_t raw_i;
+
+    /* A NUL in the wire request must not terminate parsing early. */
+    for (raw_i = 0; raw_i < hc->read_idx; ++raw_i) {
+        if (hc->read_buf[raw_i] == '\0') {
+            httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+            return -1;
+        }
+    }
 
     hc->checked_idx = 0; /* reset */
     method_str = bufgets(hc);
@@ -1787,7 +1844,7 @@ int httpd_parse_request(httpd_conn* hc) {
             return -1;
         }
         *url = '\0';
-        if (strchr(reqhost, '/') != (char*) 0 || reqhost[0] == '.') {
+        if (!valid_vhost_name(reqhost)) {
             httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form,
                     "");
             return -1;
@@ -1816,6 +1873,14 @@ int httpd_parse_request(httpd_conn* hc) {
     hc->encodedurl = url;
     httpd_realloc_str(&hc->decodedurl, &hc->maxdecodedurl,
             strlen(hc->encodedurl));
+    /* Reject percent-encoded NULs in any URL component. */
+    for (cp = hc->encodedurl; *cp != '\0'; ++cp) {
+        if (cp[0] == '%' && cp[1] != '\0' && cp[2] != '\0'
+                && cp[1] == '0' && cp[2] == '0') {
+            httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+            return -1;
+        }
+    }
     strdecode(hc->decodedurl, hc->encodedurl);
 
     httpd_realloc_str(&hc->origfilename, &hc->maxorigfilename,
@@ -1851,6 +1916,31 @@ int httpd_parse_request(httpd_conn* hc) {
         while ((buf = bufgets(hc)) != (char*) 0) {
             if (buf[0] == '\0')
                 break;
+            /* Reject folded headers and malformed field names. */
+            if (buf[0] == ' ' || buf[0] == '\t' ||
+                    (cp = strchr(buf, ':')) == (char*) 0) {
+                httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                return -1;
+            }
+            {
+                char* field;
+                for (field = buf; field < cp; ++field) {
+                    if (!isalnum((unsigned char) *field) &&
+                            strchr("!#$%&'*+-.^_`|~", *field) == (char*) 0) {
+                        httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                        return -1;
+                    }
+                }
+                if (field == buf) {
+                    httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                    return -1;
+                }
+            }
+            if (strncasecmp(buf, "Transfer-Encoding:", 18) == 0) {
+                saw_transfer_encoding = 1;
+                httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                return -1;
+            }
             if (strncasecmp(buf, "Referer:", 8) == 0) {
                 cp = &buf[8];
                 cp += strspn(cp, " \t");
@@ -1864,14 +1954,39 @@ int httpd_parse_request(httpd_conn* hc) {
                 cp += strspn(cp, " \t");
                 hc->useragent = cp;
             } else if (strncasecmp(buf, "Host:", 5) == 0) {
+                char* portsep;
+                if (saw_host++) {
+                    httpd_send_err(hc, 400, httpd_err400title, "",
+                            httpd_err400form, "");
+                    return -1;
+                }
                 cp = &buf[5];
                 cp += strspn(cp, " \t");
                 hc->hdrhost = cp;
-                cp = strchr(hc->hdrhost, ':');
-                if (cp != (char*) 0)
-                    *cp = '\0';
-                if (strchr(hc->hdrhost, '/') != (char*) 0
-                        || hc->hdrhost[0] == '.') {
+                if (*cp == '[') {
+                    char* closing = strchr(cp, ']');
+                    if (closing == (char*) 0 ||
+                            (closing[1] != '\0' && closing[1] != ':')) {
+                        httpd_send_err(hc, 400, httpd_err400title, "",
+                                httpd_err400form, "");
+                        return -1;
+                    }
+                    portsep = closing[1] == ':' ? closing + 1 : (char*) 0;
+                } else
+                    portsep = strchr(cp, ':');
+                if (portsep != (char*) 0) {
+                    char* digit;
+                    for (digit = portsep + 1; *digit != '\0'; ++digit)
+                        if (!isdigit((unsigned char) *digit))
+                            break;
+                    if (digit == portsep + 1 || *digit != '\0') {
+                        httpd_send_err(hc, 400, httpd_err400title, "",
+                                httpd_err400form, "");
+                        return -1;
+                    }
+                    *portsep = '\0';
+                }
+                if (!valid_vhost_name(hc->hdrhost)) {
                     httpd_send_err(hc, 400, httpd_err400title, "",
                             httpd_err400form, "");
                     return -1;
@@ -1953,8 +2068,27 @@ int httpd_parse_request(httpd_conn* hc) {
                 cp += strspn(cp, " \t");
                 hc->contenttype = cp;
             } else if (strncasecmp(buf, "Content-Length:", 15) == 0) {
+                unsigned long long length;
+                char* end;
+                if (saw_content_length || saw_transfer_encoding) {
+                    httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                    return -1;
+                }
+                saw_content_length = 1;
                 cp = &buf[15];
-                hc->contentlength = atol(cp);
+                cp += strspn(cp, " \t");
+                if (!isdigit((unsigned char) *cp)) {
+                    httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                    return -1;
+                }
+                errno = 0;
+                length = strtoull(cp, &end, 10);
+                end += strspn(end, " \t");
+                if (errno == ERANGE || *end != '\0' || length >= SIZE_MAX) {
+                    httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+                    return -1;
+                }
+                hc->contentlength = (size_t) length;
             } else if (strncasecmp(buf, "Authorization:", 14) == 0) {
                 cp = &buf[14];
                 cp += strspn(cp, " \t");
@@ -2144,20 +2278,20 @@ static void de_dotdot(char* file) {
 
     /* Remove leading ./ and any /./ sequences. */
     while (strncmp(file, "./", 2) == 0)
-        (void) strcpy(file, file + 2);
+        (void) memmove(file, file + 2, strlen(file + 2) + 1);
     while ((cp = strstr(file, "/./")) != (char*) 0)
-        (void) strcpy(cp, cp + 2);
+        (void) memmove(cp, cp + 2, strlen(cp + 2) + 1);
 
     /* Alternate between removing leading ../ and removing xxx/../ */
     for (;;) {
         while (strncmp(file, "../", 3) == 0)
-            (void) strcpy(file, file + 3);
+            (void) memmove(file, file + 3, strlen(file + 3) + 1);
         cp = strstr(file, "/../");
         if (cp == (char*) 0)
             break;
         for (cp2 = cp - 1; cp2 >= file && *cp2 != '/'; --cp2)
             continue;
-        (void) strcpy(cp2 + 1, cp + 4);
+        (void) memmove(cp2 + 1, cp + 4, strlen(cp + 4) + 1);
     }
 
     /* Also elide any xxx/.. at the end. */
@@ -2475,6 +2609,10 @@ mode  links    bytes  last-changed  name\n\
             nnames = 0;
             while ((de = readdir(dirp)) != 0) /* dirent or direct */
             {
+                /* Do not advertise hidden files in generated listings. */
+                if (de->d_name[0] == '.' &&
+                    strcmp(de->d_name, "..") != 0)
+                    continue;
                 if (nnames >= maxnames) {
                     if (maxnames == 0) {
                         maxnames = 100;
@@ -2502,7 +2640,8 @@ mode  links    bytes  last-changed  name\n\
             closedir(dirp);
 
             /* Sort the names. */
-            qsort(nameptrs, nnames, sizeof(*nameptrs), name_compare);
+            if (nnames > 1)
+                qsort(nameptrs, nnames, sizeof(*nameptrs), name_compare);
 
             /* Generate output. */
             for (i = 0; i < nnames; ++i) {
@@ -3031,7 +3170,9 @@ static void cgi_child(httpd_conn* hc) {
      ** dup()'d descriptor, so we have to clear it.  This could be
      ** ifdeffed for Linux only.
      */
+#ifdef __linux__
     (void) fcntl(hc->conn_fd, F_SETFD, 0);
+#endif
 
     /* Close the syslog descriptor so that the CGI program can't
      ** mess with it.  All other open descriptors should be either
@@ -3186,7 +3327,7 @@ static void cgi_child(httpd_conn* hc) {
 
     /* Default behavior for SIGPIPE. */
 #ifdef HAVE_SIGSET
-    (void) sigset( SIGPIPE, SIG_DFL );
+    (void) signal( SIGPIPE, SIG_DFL );
 #else /* HAVE_SIGSET */
     (void) signal(SIGPIPE, SIG_DFL);
 #endif /* HAVE_SIGSET */
@@ -3686,9 +3827,11 @@ httpd_ntoa(httpd_sockaddr* saP) {
         str[0] = '?';
         str[1] = '\0';
     }
-    else if ( IN6_IS_ADDR_V4MAPPED( &saP->sa_in6.sin6_addr ) && strncmp( str, "::ffff:", 7 ) == 0 )
+    else if (saP->sa.sa_family == AF_INET6 &&
+            IN6_IS_ADDR_V4MAPPED(&saP->sa_in6.sin6_addr) &&
+            strncmp(str, "::ffff:", 7) == 0)
     /* Elide IPv6ish prefix for IPv4 addresses. */
-    (void) strcpy( str, &str[7] );
+    (void) memmove( str, str + 7, strlen(str + 7) + 1 );
 
     return str;
 
@@ -3736,7 +3879,8 @@ static int my_snprintf(char* str, size_t size, const char* format, ...) {
 #ifdef HAVE_VSNPRINTF
     r = vsnprintf( str, size, format, ap );
 #else /* HAVE_VSNPRINTF */
-    r = vsprintf(str, format, ap);
+    /* Never fall back to an unbounded write. */
+    r = vsnprintf(str, size, format, ap);
 #endif /* HAVE_VSNPRINTF */
     va_end(ap);
     return r;

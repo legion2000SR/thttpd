@@ -138,10 +138,24 @@ mmc_map(char* filename, struct stat* sbP, struct timeval* nowP) {
     }
 
     /* Open the file. */
-    fd = open(filename, O_RDONLY);
+    fd = open(filename, O_RDONLY | O_NONBLOCK);
     if (fd < 0) {
         syslog(LOG_ERR, "open - %m");
         return (void*) 0;
+    }
+
+    /* A file may have changed between stat() and open().  In particular,
+     ** never map a FIFO or device supplied in place of a regular file.
+     */
+    {
+        struct stat opened_sb;
+        if (fstat(fd, &opened_sb) != 0 || !S_ISREG(opened_sb.st_mode) ||
+            opened_sb.st_dev != sb.st_dev || opened_sb.st_ino != sb.st_ino ||
+            opened_sb.st_size != sb.st_size) {
+            (void) close(fd);
+            syslog(LOG_ERR, "file changed or is not regular during map");
+            return (void*) 0;
+        }
     }
 
     /* Find a free Map entry or make a new one. */

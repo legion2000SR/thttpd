@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/uio.h>
+#include <netinet/tcp.h>
 
 #include <errno.h>
 #ifdef HAVE_FCNTL_H
@@ -513,7 +514,7 @@ int main(int argc, char** argv) {
          */
         if (logfile != (char*) 0 && strcmp(logfile, "-") != 0) {
             if (strncmp(logfile, cwd, strlen(cwd)) == 0) {
-                (void) strcpy(logfile, &logfile[strlen(cwd) - 1]);
+                (void) memmove(logfile, &logfile[strlen(cwd) - 1], strlen(&logfile[strlen(cwd) - 1]) + 1);
                 /* (We already guaranteed that cwd ends with a slash, so leaving
                  ** that slash in logfile makes it an absolute pathname within
                  ** the chroot tree.)
@@ -548,14 +549,14 @@ int main(int argc, char** argv) {
 
     /* Set up to catch signals. */
 #ifdef HAVE_SIGSET
-    (void) sigset( SIGTERM, handle_term );
-    (void) sigset( SIGINT, handle_term );
-    (void) sigset( SIGCHLD, handle_chld );
-    (void) sigset( SIGPIPE, SIG_IGN ); /* get EPIPE instead */
-    (void) sigset( SIGHUP, handle_hup );
-    (void) sigset( SIGUSR1, handle_usr1 );
-    (void) sigset( SIGUSR2, handle_usr2 );
-    (void) sigset( SIGALRM, handle_alrm );
+    (void) signal( SIGTERM, handle_term );
+    (void) signal( SIGINT, handle_term );
+    (void) signal( SIGCHLD, handle_chld );
+    (void) signal( SIGPIPE, SIG_IGN ); /* get EPIPE instead */
+    (void) signal( SIGHUP, handle_hup );
+    (void) signal( SIGUSR1, handle_usr1 );
+    (void) signal( SIGUSR2, handle_usr2 );
+    (void) signal( SIGALRM, handle_alrm );
 #else /* HAVE_SIGSET */
     (void) signal(SIGTERM, handle_term);
     (void) signal(SIGINT, handle_term);
@@ -1225,9 +1226,9 @@ static void read_throttlefile(char* tf) {
 
         /* Nuke any leading slashes in pattern. */
         if (pattern[0] == '/')
-            (void) strcpy(pattern, &pattern[1]);
+            (void) memmove(pattern, pattern + 1, strlen(pattern + 1) + 1);
         while ((cp = strstr(pattern, "|/")) != (char*) 0)
-            (void) strcpy(cp + 1, cp + 2);
+            (void) memmove(cp + 1, cp + 2, strlen(cp + 2) + 1);
 
         /* Check for room in throttles. */
         if (numthrottles >= maxthrottles) {
@@ -1432,6 +1433,15 @@ static void handle_read(connecttab* c, struct timeval* tvP) {
         /* Something went wrong.  Close down the connection. */
         finish_connection(c, tvP);
         return;
+    }
+
+    /* Disable Nagle after request dispatch, so CGI children do not
+     ** inherit the setting before their sockets are established.
+     */
+    {
+        int on = 1;
+        (void) setsockopt(hc->conn_fd, IPPROTO_TCP, TCP_NODELAY,
+                          (char*) &on, sizeof(on));
     }
 
     /* Fill in end_byte_index. */
