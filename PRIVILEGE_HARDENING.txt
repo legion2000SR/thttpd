@@ -1,0 +1,7 @@
+Privilege-drop hardening for thttpd 2.26-L2K
+
+- Resolve supplementary groups with initgroups() before chroot(), while NSS files are accessible.
+- Abort startup on initgroups() failure (LOG_CRIT).
+- Set primary gid then uid; verify effective IDs after transition.
+- Preserve -u username option and other existing configuration.
+- Note: tests run on Linux only; additional platform testing recommended.

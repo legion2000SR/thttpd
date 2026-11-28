@@ -500,6 +500,16 @@ int main(int argc, char** argv) {
     }
     max_connects -= SPARE_FDS;
 
+    /* Resolve supplementary groups before chroot hides the account database.
+     ** Never continue as root with an incomplete privilege transition.
+     */
+    if (getuid() == 0) {
+        if (initgroups(user, gid) < 0) {
+            syslog(LOG_CRIT, "initgroups - %m");
+            exit(1);
+        }
+    }
+
     /* Chroot if requested. */
     if (do_chroot) {
         if (chroot(cwd) < 0) {
@@ -621,19 +631,11 @@ int main(int argc, char** argv) {
 
     /* If we're root, try to become someone else. */
     if (getuid() == 0) {
-        /* Set aux groups to null. */
-        if (setgroups(0, (const gid_t*) 0) < 0) {
-            syslog(LOG_CRIT, "setgroups - %m");
-            exit(1);
-        }
-        /* Set primary group. */
+        /* Supplementary groups were set before chroot. */
         if (setgid(gid) < 0) {
             syslog(LOG_CRIT, "setgid - %m");
             exit(1);
         }
-        /* Try setting aux groups correctly - not critical if this fails. */
-        if (initgroups(user, gid) < 0)
-            syslog(LOG_WARNING, "initgroups - %m");
 #ifdef HAVE_SETLOGIN
         /* Set login name. */
         (void) setlogin( user );
@@ -641,6 +643,10 @@ int main(int argc, char** argv) {
         /* Set uid. */
         if (setuid(uid) < 0) {
             syslog(LOG_CRIT, "setuid - %m");
+            exit(1);
+        }
+        if (geteuid() != uid || getegid() != gid) {
+            syslog(LOG_CRIT, "privilege drop did not set the requested identity");
             exit(1);
         }
         /* Check for unnecessary security exposure. */

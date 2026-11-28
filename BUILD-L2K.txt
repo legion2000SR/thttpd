@@ -1,0 +1,23 @@
+thttpd 2.26-L2K - building from source
+========================================
+
+Linux / Unix (with a C compiler, make, and required development libraries):
+
+    ./configure
+    make
+
+For a custom installation prefix:
+
+    ./configure --prefix=/usr/local
+    make
+    make install
+
+Use ./configure --help to inspect supported configuration options.
+
+The configure script is included in this archive and is executable on
+Unix-like systems. You do not need to run autoconf or autoreconf to build
+this release. If you edit configure.ac, regenerate the script using the
+appropriate GNU Autotools tools before distributing it.
+
+Verification performed: ./configure and make both succeeded on the
+available Linux/GCC environment. Other platforms have not been tested.
