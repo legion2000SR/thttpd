@@ -1061,20 +1061,40 @@ static void lookup_hostname(httpd_sockaddr* sa4P, size_t sa4_len, int* gotv4P,
     struct addrinfo* ai2;
     struct addrinfo* aiv6;
     struct addrinfo* aiv4;
+    const char* lookup_host = hostname;
+    char* unbracketed_host = (char*) 0;
+
+    /* Accept bracketed IPv6 literals in -h, as used in URLs. */
+    if (hostname != (char*) 0 && hostname[0] == '[')
+    {
+        size_t hostlen = strlen(hostname);
+        if (hostlen > 2 && hostname[hostlen - 1] == ']')
+        {
+            unbracketed_host = (char*) malloc(hostlen - 1);
+            if (unbracketed_host == (char*) 0)
+            {
+                perror("malloc");
+                exit(1);
+            }
+            memcpy(unbracketed_host, hostname + 1, hostlen - 2);
+            unbracketed_host[hostlen - 2] = '\0';
+            lookup_host = unbracketed_host;
+        }
+    }
 
     (void) memset( &hints, 0, sizeof(hints) );
     hints.ai_family = PF_UNSPEC;
     hints.ai_flags = AI_PASSIVE;
     hints.ai_socktype = SOCK_STREAM;
     (void) snprintf( portstr, sizeof(portstr), "%d", (int) port );
-    if ( (gaierr = getaddrinfo( hostname, portstr, &hints, &ai )) != 0 )
+    if ( (gaierr = getaddrinfo( lookup_host, portstr, &hints, &ai )) != 0 )
     {
         syslog(
                 LOG_CRIT, "getaddrinfo %.80s - %.80s",
-                hostname, gai_strerror( gaierr ) );
+                hostname != (char*) 0 ? hostname : "*", gai_strerror( gaierr ) );
         (void) fprintf(
                 stderr, "%s: getaddrinfo %s - %s\n",
-                argv0, hostname, gai_strerror( gaierr ) );
+                argv0, hostname != (char*) 0 ? hostname : "*", gai_strerror( gaierr ) );
         exit( 1 );
     }
 
@@ -1104,7 +1124,7 @@ static void lookup_hostname(httpd_sockaddr* sa4P, size_t sa4_len, int* gotv4P,
         {
             syslog(
                     LOG_CRIT, "%.80s - sockaddr too small (%lu < %lu)",
-                    hostname, (unsigned long) sa6_len,
+                    hostname != (char*) 0 ? hostname : "*", (unsigned long) sa6_len,
                     (unsigned long) aiv6->ai_addrlen );
             exit( 1 );
         }
@@ -1121,7 +1141,7 @@ static void lookup_hostname(httpd_sockaddr* sa4P, size_t sa4_len, int* gotv4P,
         {
             syslog(
                     LOG_CRIT, "%.80s - sockaddr too small (%lu < %lu)",
-                    hostname, (unsigned long) sa4_len,
+                    hostname != (char*) 0 ? hostname : "*", (unsigned long) sa4_len,
                     (unsigned long) aiv4->ai_addrlen );
             exit( 1 );
         }
@@ -1131,6 +1151,7 @@ static void lookup_hostname(httpd_sockaddr* sa4P, size_t sa4_len, int* gotv4P,
     }
 
     freeaddrinfo( ai );
+    free(unbracketed_host);
 
 #else /* USE_IPV6 */
 

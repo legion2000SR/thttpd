@@ -1,0 +1,18 @@
+thttpd 2.26-L2K - IPv6 repair notes
+
+Implemented:
+- Explicit IPV6_V6ONLY on IPv6 listening sockets, where supported, so IPv4 and IPv6 listeners can bind the same port independently.
+- Fail the IPv6 listener cleanly if the v6-only socket option cannot be applied.
+- Avoid NULL hostname formatting in getaddrinfo error paths when listening on all interfaces.
+- Validate DNS hostname label lengths and leading/trailing hyphens, in addition to the earlier IPv6 literal and Host header checks.
+- Restored the missing config.h from the original source distribution to make the integrated tree buildable.
+
+Verification performed:
+- autoreconf -fi; ./configure; make: PASS (GCC, Linux)
+- Local HTTP/1.1 request via 127.0.0.1:18976: 200 OK
+- Local HTTP/1.1 request via [::1]:18976: 200 OK
+- Server banner: thttpd/2.26-L2K
+
+Limits:
+- This tests loopback dual-stack operation only. External network, IPv6 scope IDs, operating-system portability, CGI and virtual-host directory mapping require further testing.
+- This does not implement HTTP keep-alive, tasklets or other unfinished features.

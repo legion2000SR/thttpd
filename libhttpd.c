@@ -367,6 +367,21 @@ static int initialize_listen_socket(httpd_sockaddr* saP) {
             < 0)
         syslog(LOG_CRIT, "setsockopt SO_REUSEADDR - %m");
 
+#ifdef USE_IPV6
+#ifdef IPV6_V6ONLY
+    /* Keep IPv4 and IPv6 listeners independent on dual-stack systems. */
+    if (saP->sa.sa_family == AF_INET6) {
+        on = 1;
+        if (setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY,
+                (char*) &on, sizeof(on)) < 0) {
+            syslog(LOG_ERR, "setsockopt IPV6_V6ONLY - %m");
+            (void) close(listen_fd);
+            return -1;
+        }
+    }
+#endif /* IPV6_V6ONLY */
+#endif /* USE_IPV6 */
+
     /* Bind to it. */
     if (bind(listen_fd, &saP->sa, sockaddr_len(saP)) < 0) {
         syslog(LOG_CRIT, "bind %.80s - %m", httpd_ntoa(saP));
@@ -1230,10 +1245,23 @@ static int valid_vhost_name(const char* name) {
 #endif
     if (len == 0 || len > 253 || name[0] == '.' || name[len - 1] == '.')
         return 0;
-    for (; *p != '\0'; ++p)
-        if (!(isalnum(*p) || *p == '.' || *p == '-'))
-            return 0;
-    return strstr(name, "..") == (char*) 0;
+    {
+        size_t label_len = 0;
+        for (; *p != '\0'; ++p) {
+            if (*p == '.') {
+                if (label_len == 0 || label_len > 63 || p[-1] == '-')
+                    return 0;
+                label_len = 0;
+            } else {
+                if (!(isalnum(*p) || *p == '-'))
+                    return 0;
+                if (label_len == 0 && *p == '-')
+                    return 0;
+                ++label_len;
+            }
+        }
+        return label_len != 0 && label_len <= 63 && p[-1] != '-';
+    }
 }
 
 /* Virtual host mapping. */
