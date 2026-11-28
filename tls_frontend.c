@@ -19,17 +19,55 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "ddos_config.h"
+#include <time.h>
+#include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
 #define BUFSZ 32768
 #define TIMEOUT_MS 30000
+static int io_timeout_ms = TIMEOUT_MS;
 #define MAX_CHILDREN 128
 static volatile sig_atomic_t children = 0;
+#if DDOS_ENABLED
+typedef struct { pid_t pid; char ip[64]; } child_entry;
+static child_entry active_children[MAX_CHILDREN];
+typedef struct { char ip[64]; time_t window, blocked_until; unsigned int count; } ip_entry;
+static ip_entry ip_table[DDOS_TRACKED_IPS];
+static int allow_ip(const char* ip, time_t now) {
+    int i, empty = -1, active = 0; ip_entry* e = NULL;
+    for (i = 0; i < MAX_CHILDREN; ++i)
+        if (active_children[i].pid && strcmp(active_children[i].ip, ip) == 0) ++active;
+    for (i = 0; i < DDOS_TRACKED_IPS; ++i) {
+        if (strcmp(ip_table[i].ip, ip) == 0) { e = &ip_table[i]; break; }
+        if (empty < 0 && (ip_table[i].ip[0] == 0 ||
+            (ip_table[i].blocked_until <= now && ip_table[i].window + 120 < now))) empty = i;
+    }
+    if (!e && empty >= 0) {
+        e = &ip_table[empty]; memset(e, 0, sizeof *e);
+        snprintf(e->ip, sizeof e->ip, "%s", ip); e->window = now;
+    }
+    if (!e || e->blocked_until > now) return 0;
+    if (now < e->window || now - e->window >= 60) { e->window = now; e->count = 0; }
+    if (active >= DDOS_MAX_CONNECTIONS_PER_IP || e->count >= DDOS_MAX_REQUESTS_PER_MINUTE) {
+        e->blocked_until = now + DDOS_TEMPORARY_BLOCK_SECONDS; return 0;
+    }
+    ++e->count; return 1;
+}
+#endif
 static void reap(int unused) {
     int saved = errno, status;
     (void)unused;
-    while (waitpid(-1, &status, WNOHANG) > 0 && children > 0) --children;
+    { pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (children > 0) --children;
+#if DDOS_ENABLED
+        { int i; for (i = 0; i < MAX_CHILDREN; ++i)
+            if (active_children[i].pid == pid) { active_children[i].pid = 0; break; } }
+#endif
+    }
+    }
     errno = saved;
 }
 static int nonblock(int fd) {
@@ -39,7 +77,7 @@ static int nonblock(int fd) {
 static int wait_for(int fd, short events) {
     struct pollfd p = {fd, events, 0};
     int r;
-    do { r = poll(&p, 1, TIMEOUT_MS); } while (r < 0 && errno == EINTR);
+    do { r = poll(&p, 1, io_timeout_ms); } while (r < 0 && errno == EINTR);
     return r > 0 && (p.revents & (events | POLLERR | POLLHUP));
 }
 static int dial_backend(const char* port) {
@@ -64,7 +102,15 @@ static int dial_backend(const char* port) {
     return fd;
 }
 static int handshake(SSL* ssl, int fd) {
+#if DDOS_ENABLED
+    time_t deadline = time(NULL) + DDOS_TLS_HANDSHAKE_TIMEOUT_SECONDS;
+#endif
     for (;;) {
+#if DDOS_ENABLED
+        time_t remaining = deadline - time(NULL);
+        if (remaining <= 0) return 0;
+        io_timeout_ms = (int)(remaining * 1000);
+#endif
         int r = SSL_accept(ssl), e;
         if (r == 1) return 1;
         e = SSL_get_error(ssl, r);
@@ -194,10 +240,26 @@ int main(int argc, char** argv) {
     sigaction(SIGCHLD, &sa, NULL);
     fprintf(stderr, "TLS frontend listening on %s:%s, HTTP backend 127.0.0.1:%s\n", host, port, backend_port);
     for (;;) {
-        int client = accept(fd, NULL, NULL);
+        struct sockaddr_storage peer; socklen_t peer_len = sizeof peer;
+        char ip[64] = "";
+        int client = accept(fd, (struct sockaddr*)&peer, &peer_len);
         pid_t pid;
         if (client < 0) { if (errno == EINTR) continue; perror("accept"); break; }
-        if (children >= MAX_CHILDREN) { close(client); continue; }
+#if DDOS_ENABLED
+        if (peer.ss_family == AF_INET)
+            inet_ntop(AF_INET, &((struct sockaddr_in*)&peer)->sin_addr, ip, sizeof ip);
+        else if (peer.ss_family == AF_INET6)
+            inet_ntop(AF_INET6, &((struct sockaddr_in6*)&peer)->sin6_addr, ip, sizeof ip);
+        if (!ip[0] || !allow_ip(ip, time(NULL))) {
+            fprintf(stderr, "TLS frontend: rate-limited connection from %s\n", ip);
+            close(client); continue;
+        }
+#endif
+        if (children >= MAX_CHILDREN
+#if DDOS_ENABLED
+            || children >= DDOS_MAX_TOTAL_CONNECTIONS
+#endif
+            ) { close(client); continue; }
         pid = fork();
         if (pid < 0) { perror("fork"); close(client); continue; }
         if (pid == 0) {
@@ -209,13 +271,22 @@ int main(int argc, char** argv) {
             ssl = SSL_new(ctx);
             if (!ssl) _exit(1);
             SSL_set_fd(ssl, client);
+#if DDOS_ENABLED
+            io_timeout_ms = DDOS_TLS_HANDSHAKE_TIMEOUT_SECONDS * 1000;
+#endif
             if (handshake(ssl, client)) {
+                io_timeout_ms = TIMEOUT_MS;
                 backend = dial_backend(backend_port);
                 if (backend >= 0) { relay(ssl, client, backend); close(backend); }
             }
             SSL_free(ssl); close(client); _exit(0);
         }
         ++children;
+#if DDOS_ENABLED
+        { int i; for (i = 0; i < MAX_CHILDREN; ++i)
+            if (!active_children[i].pid) { active_children[i].pid = pid;
+                snprintf(active_children[i].ip, sizeof active_children[i].ip, "%s", ip); break; } }
+#endif
         close(client);
     }
     close(fd);

@@ -37,3 +37,15 @@ This document describes the implementation state in this source snapshot. A chec
 This snapshot includes Linux builds with and without OpenSSL and a basic loopback HTTP/HTTPS smoke test. It does **not** include comprehensive privileged runtime tests, sanitizer runs, fuzzing, TLS load tests, or platform portability testing. Previous build claims should not be interpreted as verification of all outstanding features.
 
 Do not treat this snapshot as independently validated for public-facing production deployment.
+
+## Compile-time abuse mitigation (2026-11-28)
+
+- [x] Added `ddos_config.h` to allow operators to set limits before compiling.
+- [x] HTTP admission: bounded per-IP table, connection cap, rolling 60-second fixed-window counter, temporary cooldown, and global connection cap.
+- [x] HTTP: configurable header-read inactivity timeout and request-header buffer ceiling.
+- [x] Optional OpenSSL frontend: per-IP admission, bounded child-process count, temporary cooldown, and TLS handshake deadline.
+- [x] Compiles on Linux with `./configure --with-openssl` and `./configure --without-openssl`.
+- [ ] No HTTP 429 response yet: rejected connections are closed.
+- [ ] No comprehensive adversarial/load testing; not a substitute for upstream DDoS protection.
+
+The rate setting is per accepted TCP connection (one HTTP request per connection in the legacy server), not a sophisticated per-URL/application-layer limiter. TLS frontend limits apply independently of the backend limits. Defaults are editable and enabled in `ddos_config.h`; setting `DDOS_ENABLED` to `0` removes the added checks at compile time. These features are not claimed to stop large-scale DDoS attacks.

@@ -87,3 +87,15 @@ Release process:
   - update version number in ../thttpd.html
   - update ~acmeweb/updates.html
   - mail announcement to thttpd-announce
+
+- - - - - - - L2K application-level abuse mitigation - - - - - - -
+
+[x] Compile-time settings in ddos_config.h (DDOS_ENABLED and thresholds).
+[x] Bounded IPv4/IPv6 per-client connection admission and 60-second rate windows.
+[x] Global HTTP connection admission cap and TLS child cap.
+[x] Read timeout and maximum request-header buffer cap in HTTP server.
+[x] TLS handshake deadline and admission checks in optional TLS frontend.
+[x] Temporary client cooldown and bounded tracking tables.
+[ ] Dedicated HTTP 429 response on rejection (currently drops TCP connection).
+[ ] Comprehensive load tests, IPv6 tests, CGI tests, and security review.
+[ ] Network-level volumetric DDoS protection (requires upstream filtering).

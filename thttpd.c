@@ -27,6 +27,7 @@
 
 #include "config.h"
 #include "version.h"
+#include "ddos_config.h"
 
 #include <sys/param.h>
 #include <sys/types.h>
@@ -113,6 +114,44 @@ typedef struct {
 static connecttab* connects;
 static int num_connects, max_connects, first_free_connect;
 static int httpd_conn_count;
+#if DDOS_ENABLED
+/* Bounded table; when full, reject unknown clients instead of growing memory. */
+typedef struct { char ip[64]; time_t window, blocked_until; unsigned int requests; } ddos_entry;
+static ddos_entry ddos_ips[DDOS_TRACKED_IPS];
+static ddos_entry* ddos_lookup(const char* ip, time_t now) {
+    int i, free_slot = -1;
+    for (i = 0; i < DDOS_TRACKED_IPS; ++i) {
+        if (strcmp(ddos_ips[i].ip, ip) == 0) return &ddos_ips[i];
+        if (free_slot < 0 && (ddos_ips[i].ip[0] == 0 ||
+            (ddos_ips[i].blocked_until <= now && ddos_ips[i].window + 120 < now))) free_slot = i;
+    }
+    if (free_slot < 0) return NULL;
+    memset(&ddos_ips[free_slot], 0, sizeof(ddos_ips[free_slot]));
+    snprintf(ddos_ips[free_slot].ip, sizeof(ddos_ips[free_slot].ip), "%s", ip);
+    ddos_ips[free_slot].window = now;
+    return &ddos_ips[free_slot];
+}
+static int ddos_reject(httpd_conn* hc, time_t now) {
+    char ip[64];
+    ddos_entry* e;
+    int i, active = 0;
+    snprintf(ip, sizeof ip, "%s", httpd_ntoa(&hc->client_addr));
+    e = ddos_lookup(ip, now);
+    if (!e || e->blocked_until > now) return 1;
+    if (now < e->window || now - e->window >= 60) { e->window = now; e->requests = 0; }
+    for (i = 0; i < max_connects; ++i)
+        if (connects[i].conn_state != 0 && connects[i].hc &&
+            strcmp(ip, httpd_ntoa(&connects[i].hc->client_addr)) == 0) ++active;
+    if (active >= DDOS_MAX_CONNECTIONS_PER_IP ||
+        e->requests >= DDOS_MAX_REQUESTS_PER_MINUTE) {
+        e->blocked_until = now + DDOS_TEMPORARY_BLOCK_SECONDS;
+        return 1;
+    }
+    ++e->requests;
+    return 0;
+}
+#endif
+
 
 /* The connection states. */
 #define CNST_FREE 0
@@ -1329,7 +1368,11 @@ static int handle_newconnect(struct timeval* tvP, int listen_fd) {
      */
     for (;;) {
         /* Is there room in the connection table? */
-        if (num_connects >= max_connects) {
+        if (num_connects >= max_connects
+#if DDOS_ENABLED
+            || num_connects >= DDOS_MAX_TOTAL_CONNECTIONS
+#endif
+            ) {
             /* Out of connection slots.  Run the timers, then the
              ** existing connections, and maybe we'll free up a slot
              ** by the time we get back here.
@@ -1369,6 +1412,14 @@ static int handle_newconnect(struct timeval* tvP, int listen_fd) {
         case GC_NO_MORE:
             return 1;
         }
+#if DDOS_ENABLED
+        if (ddos_reject(c->hc, tvP->tv_sec)) {
+            syslog(LOG_NOTICE, "DDoS: rejecting client %.64s", httpd_ntoa(&c->hc->client_addr));
+            close(c->hc->conn_fd);
+            c->hc->conn_fd = -1;
+            continue;
+        }
+#endif
         c->conn_state = CNST_READING;
         /* Pop it off the free list. */
         first_free_connect = c->next_free_connect;
@@ -1399,7 +1450,13 @@ static void handle_read(connecttab* c, struct timeval* tvP) {
 
     /* Is there room in our buffer to read more bytes? */
     if (hc->read_idx >= hc->read_size) {
-        if (hc->read_size > 5000) {
+        if (hc->read_size > (
+#if DDOS_ENABLED
+            DDOS_MAX_HEADER_BYTES
+#else
+            5000
+#endif
+            )) {
             httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form,
                     "");
             finish_connection(c, tvP);
@@ -1429,6 +1486,13 @@ static void handle_read(connecttab* c, struct timeval* tvP) {
         return;
     }
     hc->read_idx += sz;
+#if DDOS_ENABLED
+    if (hc->read_idx > DDOS_MAX_HEADER_BYTES) {
+        httpd_send_err(hc, 400, httpd_err400title, "", httpd_err400form, "");
+        finish_connection(c, tvP);
+        return;
+    }
+#endif
     c->active_at = tvP->tv_sec;
 
     /* Do we have a complete request yet? */
@@ -1839,7 +1903,13 @@ static void idle(ClientData client_data, struct timeval* nowP) {
         c = &connects[cnum];
         switch (c->conn_state) {
         case CNST_READING:
-            if (nowP->tv_sec - c->active_at >= IDLE_READ_TIMELIMIT) {
+            if (nowP->tv_sec - c->active_at >=
+#if DDOS_ENABLED
+                DDOS_HEADER_TIMEOUT_SECONDS
+#else
+                IDLE_READ_TIMELIMIT
+#endif
+                ) {
                 syslog(LOG_INFO, "%.80s connection timed out reading",
                         httpd_ntoa(&c->hc->client_addr));
                 httpd_send_err(c->hc, 408, httpd_err408title, "",
