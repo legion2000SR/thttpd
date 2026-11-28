@@ -1,21 +1,29 @@
-# Development status
+# Implementation status — thttpd 2.26-L2K
 
-This build is NOT a completion of all eight requested feature areas.
+This document describes the implementation state in this source snapshot. A checked item means the relevant code was inspected; it does **not** imply comprehensive security or runtime testing.
 
-## Change in this iteration
-The single-entry Basic authentication cache now checks the password file's change time, size, inode and device as well as modification time. This reduces the risk of reusing cached credentials after an atomic password-file replacement with a preserved modification time.
+## Verified in the bundled source
 
-## Verification
-The project compiles with `make -j2`. The change has not received a dedicated authentication integration test, sanitizer run, or fuzzing campaign.
+- [x] **Privilege-drop hardening:** when started as root, `initgroups(user, gid)` is called before `chroot()` and a failure is fatal. `setgid()` and `setuid()` failures are fatal, and the resulting effective UID/GID are checked. The existing `-u` user-selection mechanism remains in place.
+- [x] **Directory listings:** the listing loop in `libhttpd.c` skips dot-prefixed entries as documented in `TODO`.
+- [x] **Nonblocking file open:** `mmc.c` opens files with `O_RDONLY | O_NONBLOCK`.
+- [x] **TCP_NODELAY:** `thttpd.c` applies `TCP_NODELAY` after `httpd_start_request()`.
+- [x] **Basic authentication cache metadata:** the single-entry cache compares password-file change time, size, inode, device, and modification time. This is a partial hardening measure, not a complete cache/race redesign.
 
-## Outstanding
-- IPv6: dual-stack end-to-end validation and edge cases
-- Virtual hosts: mapping and symlink boundary validation
-- HTTP keep-alive: persistent connection state and request framing
-- CGI: comprehensive execution and PATH_INFO authorization review
-- Authentication: end-to-end tests and cache/race redesign
-- Permissions: redesign and directory traversal/race testing
-- Stat caching: invalidation-safe implementation
-- Tasklets: event-driven architecture rewrite
+## Not verified as complete / outstanding
 
-Do not deploy this build to a public-facing production server based on this work alone.
+- [ ] IPv6: dual-stack end-to-end testing and edge cases.
+- [ ] Virtual hosts: host mapping, numeric-address/no-Host cases, and symlink boundary validation.
+- [ ] CGI and PATH_INFO: authorization and execution review, including the ACME News issue.
+- [ ] Authentication: end-to-end tests and full cache/race redesign.
+- [ ] Permissions: parent-directory traversal, symlink behaviour, and race-condition review.
+- [ ] HTTP keep-alive: persistent connection handling and request framing.
+- [ ] Stat cache: implementation with safe invalidation.
+- [ ] Tasklets: event-driven architecture rewrite.
+- [ ] Remaining unchecked entries in `TODO`: no completion claim is made for these.
+
+## Verification limitations
+
+This update reconciles the status document with the bundled `TODO` and inspected C source. It does **not** include a new build, privileged runtime test, sanitizer run, fuzzing campaign, or platform portability test. Previous build claims should not be interpreted as verification of all outstanding features.
+
+Do not treat this snapshot as independently validated for public-facing production deployment.
