@@ -50,6 +50,15 @@ AC_PROG_LIBTOOL
 AC_CHECK_LIB(inet6, getaddrinfo)
 AC_CHECK_LIB(crypt, crypt)
 
+# OpenSSL is optional; default builds have no TLS dependency.
+AC_ARG_WITH([openssl], [AS_HELP_STRING([--with-openssl], [build optional HTTPS frontend (default: no)])], [], [with_openssl=no])
+AS_IF([test "x$with_openssl" = "xyes"], [
+  AC_CHECK_HEADERS([openssl/ssl.h openssl/err.h], [], [AC_MSG_ERROR([OpenSSL headers are required for --with-openssl])])
+  AC_CHECK_LIB([ssl], [SSL_CTX_new], [], [AC_MSG_ERROR([OpenSSL libssl is required])], [-lcrypto])
+  AC_CHECK_LIB([crypto], [OPENSSL_init_crypto], [], [AC_MSG_ERROR([OpenSSL libcrypto is required])])
+], [AS_IF([test "x$with_openssl" != "xno"], [AC_MSG_ERROR([use --with-openssl or --without-openssl])])])
+AM_CONDITIONAL([WITH_OPENSSL], [test "x$with_openssl" = "xyes"])
+
 # Checks for header files.
 AC_CHECK_HEADERS([fcntl.h grp.h memory.h dirent.h sys/ndir.h sys/dir.h ndir.h paths.h poll.h sys/poll.h sys/devpoll.h sys/event.h osreldate.h])
 

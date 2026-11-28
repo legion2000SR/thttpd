@@ -44,3 +44,12 @@ man_MANS = thttpd.8
 
 sbin_PROGRAMS = thttpd
 thttpd_SOURCES = thttpd.c libhttpd.c fdwatch.c mmc.c timers.c match.c tdate_parse.c mime_encodings.h mime_types.h
+
+# The TLS frontend is a separate executable; the original HTTP daemon remains
+# free of OpenSSL dependencies, including when --with-openssl is selected.
+if WITH_OPENSSL
+sbin_PROGRAMS += thttpd-tls
+thttpd_tls_SOURCES = tls_frontend.c
+thttpd_tls_LDADD = -lssl -lcrypto
+endif
+EXTRA_DIST = TLS_README.md

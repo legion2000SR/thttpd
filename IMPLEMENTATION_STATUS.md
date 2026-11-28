@@ -2,6 +2,16 @@
 
 This document describes the implementation state in this source snapshot. A checked item means the relevant code was inspected; it does **not** imply comprehensive security or runtime testing.
 
+## Optional OpenSSL HTTPS frontend (new)
+
+- [x] `./configure --with-openssl` conditionally builds the separate `thttpd-tls` executable linked to OpenSSL; the default and `--without-openssl` builds remain OpenSSL-free.
+- [x] The TLS frontend supports TLS 1.2+ and PEM certificate/key loading, with bounded nonblocking relay buffers and a 30-second I/O timeout.
+- [x] Local Linux smoke tests: HTTP and HTTPS static GET returned HTTP 200; TLS 1.2 and TLS 1.3 handshakes succeeded; IPv6 frontend listener accepted connections.
+- [x] The HTTPS frontend drops privileges when started as root; the backend retains its existing `-u` support.
+- [ ] Native in-process TLS integration in `thttpd`: **not implemented**. HTTPS is provided by a separate executable, not the legacy event loop.
+- [ ] HTTPS-specific CGI environment and redirect correctness: **not implemented**. CGI/SSI are forwarded as HTTP bytes but cannot reliably detect HTTPS. See `TLS_README.md`.
+- [ ] Extended TLS security review, load/fuzz testing, portability, and complete IPv6 HTTPS request verification.
+
 ## Verified in the bundled source
 
 - [x] **Privilege-drop hardening:** when started as root, `initgroups(user, gid)` is called before `chroot()` and a failure is fatal. `setgid()` and `setuid()` failures are fatal, and the resulting effective UID/GID are checked. The existing `-u` user-selection mechanism remains in place.
@@ -24,6 +34,6 @@ This document describes the implementation state in this source snapshot. A chec
 
 ## Verification limitations
 
-This update reconciles the status document with the bundled `TODO` and inspected C source. It does **not** include a new build, privileged runtime test, sanitizer run, fuzzing campaign, or platform portability test. Previous build claims should not be interpreted as verification of all outstanding features.
+This snapshot includes Linux builds with and without OpenSSL and a basic loopback HTTP/HTTPS smoke test. It does **not** include comprehensive privileged runtime tests, sanitizer runs, fuzzing, TLS load tests, or platform portability testing. Previous build claims should not be interpreted as verification of all outstanding features.
 
 Do not treat this snapshot as independently validated for public-facing production deployment.

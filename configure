@@ -656,6 +656,8 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+WITH_OPENSSL_FALSE
+WITH_OPENSSL_TRUE
 CXXCPP
 LT_SYS_LIBRARY_PATH
 OTOOL64
@@ -798,6 +800,7 @@ with_aix_soname
 with_gnu_ld
 with_sysroot
 enable_libtool_lock
+with_openssl
 enable_largefile
 enable_year2038
 '
@@ -1467,6 +1470,7 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot[=DIR]    Search for dependent libraries within DIR (or the
                           compiler's sysroot if not specified).
+  --with-openssl          build optional HTTPS frontend (default: no)
 
 Some influential environment variables:
   CC          C compiler command
@@ -18896,6 +18900,161 @@ then :
 fi
 
 
+# OpenSSL is optional; default builds have no TLS dependency.
+
+# Check whether --with-openssl was given.
+if test ${with_openssl+y}
+then :
+  withval=$with_openssl;
+else case e in #(
+  e) with_openssl=no ;;
+esac
+fi
+
+if test "x$with_openssl" = "xyes"
+then :
+
+         for ac_header in openssl/ssl.h openssl/err.h
+do :
+  as_ac_Header=`printf "%s\n" "ac_cv_header_$ac_header" | sed "$as_sed_sh"`
+ac_fn_c_check_header_compile "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
+if eval test \"x\$"$as_ac_Header"\" = x"yes"
+then :
+  cat >>confdefs.h <<_ACEOF
+#define `printf "%s\n" "HAVE_$ac_header" | sed "$as_sed_cpp"` 1
+_ACEOF
+
+else case e in #(
+  e) as_fn_error $? "OpenSSL headers are required for --with-openssl" "$LINENO" 5 ;;
+esac
+fi
+
+done
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for SSL_CTX_new in -lssl" >&5
+printf %s "checking for SSL_CTX_new in -lssl... " >&6; }
+if test ${ac_cv_lib_ssl_SSL_CTX_new+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-lssl -lcrypto $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char SSL_CTX_new (void);
+int
+main (void)
+{
+return SSL_CTX_new ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_ssl_SSL_CTX_new=yes
+else case e in #(
+  e) ac_cv_lib_ssl_SSL_CTX_new=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ssl_SSL_CTX_new" >&5
+printf "%s\n" "$ac_cv_lib_ssl_SSL_CTX_new" >&6; }
+if test "x$ac_cv_lib_ssl_SSL_CTX_new" = xyes
+then :
+  printf "%s\n" "#define HAVE_LIBSSL 1" >>confdefs.h
+
+  LIBS="-lssl $LIBS"
+
+else case e in #(
+  e) as_fn_error $? "OpenSSL libssl is required" "$LINENO" 5 ;;
+esac
+fi
+
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for OPENSSL_init_crypto in -lcrypto" >&5
+printf %s "checking for OPENSSL_init_crypto in -lcrypto... " >&6; }
+if test ${ac_cv_lib_crypto_OPENSSL_init_crypto+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-lcrypto  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char OPENSSL_init_crypto (void);
+int
+main (void)
+{
+return OPENSSL_init_crypto ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_crypto_OPENSSL_init_crypto=yes
+else case e in #(
+  e) ac_cv_lib_crypto_OPENSSL_init_crypto=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_crypto_OPENSSL_init_crypto" >&5
+printf "%s\n" "$ac_cv_lib_crypto_OPENSSL_init_crypto" >&6; }
+if test "x$ac_cv_lib_crypto_OPENSSL_init_crypto" = xyes
+then :
+  printf "%s\n" "#define HAVE_LIBCRYPTO 1" >>confdefs.h
+
+  LIBS="-lcrypto $LIBS"
+
+else case e in #(
+  e) as_fn_error $? "OpenSSL libcrypto is required" "$LINENO" 5 ;;
+esac
+fi
+
+
+else case e in #(
+  e) if test "x$with_openssl" != "xno"
+then :
+  as_fn_error $? "use --with-openssl or --without-openssl" "$LINENO" 5
+fi ;;
+esac
+fi
+ if test "x$with_openssl" = "xyes"; then
+  WITH_OPENSSL_TRUE=
+  WITH_OPENSSL_FALSE='#'
+else
+  WITH_OPENSSL_TRUE='#'
+  WITH_OPENSSL_FALSE=
+fi
+
+
 # Checks for header files.
 ac_fn_c_check_header_compile "$LINENO" "fcntl.h" "ac_cv_header_fcntl_h" "$ac_includes_default"
 if test "x$ac_cv_header_fcntl_h" = xyes
@@ -19751,6 +19910,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCXX_TRUE}" && test -z "${am__fastdepCXX_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCXX\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_OPENSSL_TRUE}" && test -z "${WITH_OPENSSL_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_OPENSSL\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 # Check whether --enable-year2038 was given.

@@ -116,7 +116,11 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-sbin_PROGRAMS = thttpd$(EXEEXT)
+sbin_PROGRAMS = thttpd$(EXEEXT) $(am__EXEEXT_1)
+
+# The TLS frontend is a separate executable; the original HTTP daemon remains
+# free of OpenSSL dependencies, including when --with-openssl is selected.
+@WITH_OPENSSL_TRUE@am__append_1 = thttpd-tls
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -133,6 +137,7 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = autoconf.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
+@WITH_OPENSSL_TRUE@am__EXEEXT_1 = thttpd-tls$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(man8dir)"
 PROGRAMS = $(sbin_PROGRAMS)
 am_thttpd_OBJECTS = thttpd.$(OBJEXT) libhttpd.$(OBJEXT) \
@@ -144,6 +149,10 @@ AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
+am__thttpd_tls_SOURCES_DIST = tls_frontend.c
+@WITH_OPENSSL_TRUE@am_thttpd_tls_OBJECTS = tls_frontend.$(OBJEXT)
+thttpd_tls_OBJECTS = $(am_thttpd_tls_OBJECTS)
+thttpd_tls_DEPENDENCIES =
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -162,7 +171,7 @@ am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/fdwatch.Po ./$(DEPDIR)/libhttpd.Po \
 	./$(DEPDIR)/match.Po ./$(DEPDIR)/mmc.Po \
 	./$(DEPDIR)/tdate_parse.Po ./$(DEPDIR)/thttpd.Po \
-	./$(DEPDIR)/timers.Po
+	./$(DEPDIR)/timers.Po ./$(DEPDIR)/tls_frontend.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -182,8 +191,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(thttpd_SOURCES)
-DIST_SOURCES = $(thttpd_SOURCES)
+SOURCES = $(thttpd_SOURCES) $(thttpd_tls_SOURCES)
+DIST_SOURCES = $(thttpd_SOURCES) $(am__thttpd_tls_SOURCES_DIST)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -452,6 +461,9 @@ WEBGROUP = www
 CGIBINDIR = $(WEBDIR)/cgi-bin
 man_MANS = thttpd.8
 thttpd_SOURCES = thttpd.c libhttpd.c fdwatch.c mmc.c timers.c match.c tdate_parse.c mime_encodings.h mime_types.h
+@WITH_OPENSSL_TRUE@thttpd_tls_SOURCES = tls_frontend.c
+@WITH_OPENSSL_TRUE@thttpd_tls_LDADD = -lssl -lcrypto
+EXTRA_DIST = TLS_README.md
 all: autoconf.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -554,6 +566,10 @@ thttpd$(EXEEXT): $(thttpd_OBJECTS) $(thttpd_DEPENDENCIES) $(EXTRA_thttpd_DEPENDE
 	@rm -f thttpd$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(thttpd_OBJECTS) $(thttpd_LDADD) $(LIBS)
 
+thttpd-tls$(EXEEXT): $(thttpd_tls_OBJECTS) $(thttpd_tls_DEPENDENCIES) $(EXTRA_thttpd_tls_DEPENDENCIES) 
+	@rm -f thttpd-tls$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(thttpd_tls_OBJECTS) $(thttpd_tls_LDADD) $(LIBS)
+
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 
@@ -567,6 +583,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tdate_parse.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/thttpd.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/timers.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tls_frontend.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -1001,6 +1018,7 @@ distclean: distclean-recursive
 	-rm -f ./$(DEPDIR)/tdate_parse.Po
 	-rm -f ./$(DEPDIR)/thttpd.Po
 	-rm -f ./$(DEPDIR)/timers.Po
+	-rm -f ./$(DEPDIR)/tls_frontend.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -1055,6 +1073,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f ./$(DEPDIR)/tdate_parse.Po
 	-rm -f ./$(DEPDIR)/thttpd.Po
 	-rm -f ./$(DEPDIR)/timers.Po
+	-rm -f ./$(DEPDIR)/tls_frontend.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

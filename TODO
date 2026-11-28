@@ -1,3 +1,6 @@
+- [x] Optional OpenSSL HTTPS frontend: configure --with-openssl builds thttpd-tls; HTTP-only remains default. Basic TLS 1.2/1.3 requests tested over loopback; IPv6 listener accepts connections. See TLS_README.md.
+- [ ] HTTPS production validation: load tests, TLS/CGI HTTPS-environment semantics, IPv6 runtime checks, portability and external security review.
+
 TODO STATUS KEY: [x] verified implemented in this source snapshot; [ ] not verified as complete.
 Unchecked items remain open or require further investigation.
 

@@ -45,8 +45,14 @@
 /* Define to 1 if you have the 'crypt' library (-lcrypt). */
 #undef HAVE_LIBCRYPT
 
+/* Define to 1 if you have the 'crypto' library (-lcrypto). */
+#undef HAVE_LIBCRYPTO
+
 /* Define to 1 if you have the 'inet6' library (-linet6). */
 #undef HAVE_LIBINET6
+
+/* Define to 1 if you have the 'ssl' library (-lssl). */
+#undef HAVE_LIBSSL
 
 /* Define to 1 if you support file names longer than 14 characters. */
 #undef HAVE_LONG_FILE_NAMES
@@ -60,6 +66,12 @@
 
 /* Define to 1 if you have the <ndir.h> header file. */
 #undef HAVE_NDIR_H
+
+/* Define to 1 if you have the <openssl/err.h> header file. */
+#undef HAVE_OPENSSL_ERR_H
+
+/* Define to 1 if you have the <openssl/ssl.h> header file. */
+#undef HAVE_OPENSSL_SSL_H
 
 /* Define to 1 if you have the <osreldate.h> header file. */
 #undef HAVE_OSRELDATE_H
